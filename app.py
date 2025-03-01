@@ -226,7 +226,7 @@ def main(page: ft.Page):
     
     # Image widget to display the plot
     image_view = ft.Image(
-        src="",
+        src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z/C/HwAGgwJ/lLryzQAAAABJRU5ErkJggg==",
         fit=ft.ImageFit.CONTAIN,
     )
     
@@ -1138,4 +1138,4 @@ def main(page: ft.Page):
     update_plot()
 
 if __name__ == "__main__":
-    ft.app(target=main)
+    ft.app(target=main, view=ft.AppView.WEB_BROWSER)
