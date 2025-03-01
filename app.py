@@ -365,7 +365,11 @@ def main(page: ft.Page):
                 title = f"Signal {signal_id}"
             
             ax1.set_title(title, color=text_color, fontsize=14)
-            ax1.grid(grid_switch.value, linestyle='--', alpha=0.7, color=grid_color)
+            # ax1.grid(grid_switch.value, linestyle='--', alpha=0.7, color=grid_color)
+            if grid_switch.value:
+                ax1.grid(True, linestyle='--', alpha=0.7, color=grid_color)
+            else:
+                ax1.grid(False)
             
             if zero_lines_switch.value:
                 ax1.axhline(y=0, color=text_color, linestyle='-', alpha=0.3)
@@ -399,7 +403,11 @@ def main(page: ft.Page):
                 title = f"Time Domain - Signal {signal_id}"
                 
             ax1.set_title(title, color=text_color, fontsize=14)
-            ax1.grid(grid_switch.value, linestyle='--', alpha=0.7, color=grid_color)
+            # ax1.grid(grid_switch.value, linestyle='--', alpha=0.7, color=grid_color)
+            if grid_switch.value:
+                ax1.grid(True, linestyle='--', alpha=0.7, color=grid_color)
+            else:
+                ax1.grid(False)
             ax1.tick_params(axis='x', colors=text_color)
             ax1.tick_params(axis='y', colors=text_color)
             for spine in ax1.spines.values():
@@ -427,7 +435,11 @@ def main(page: ft.Page):
             ax2.set_xlabel("Frequency (Hz)", color=text_color, fontsize=12)
             ax2.set_ylabel("Magnitude", color=text_color, fontsize=12)
             ax2.set_title("Frequency Domain", color=text_color, fontsize=14)
-            ax2.grid(grid_switch.value, linestyle='--', alpha=0.7, color=grid_color)
+            # ax2.grid(grid_switch.value, linestyle='--', alpha=0.7, color=grid_color)
+            if grid_switch.value:
+                ax2.grid(True, linestyle='--', alpha=0.7, color=grid_color)
+            else:
+                ax2.grid(False)
             ax2.tick_params(axis='x', colors=text_color)
             ax2.tick_params(axis='y', colors=text_color)
             for spine in ax2.spines.values():
@@ -499,7 +511,11 @@ def main(page: ft.Page):
                 title = f'Phase Spectrum of Signal {signal_id}'
                 
             ax1.set_title(title, color=text_color)
-            ax1.grid(grid_switch.value, linestyle='--', alpha=0.7, color=grid_color)
+            # ax1.grid(grid_switch.value, linestyle='--', alpha=0.7, color=grid_color)
+            if grid_switch.value:
+                ax1.grid(True, linestyle='--', alpha=0.7, color=grid_color)
+            else:
+                ax1.grid(False)
             
             # Limit the frequency view to relevant frequencies
             freq_limit = float(freq_limit_slider.value)
@@ -1062,69 +1078,73 @@ def main(page: ft.Page):
             margin=ft.margin.only(bottom=10),
         ),
         
-        # Advanced options in expandable sections
-        ft.ExpansionPanel(
-            header=ft.ListTile(title=ft.Text("Custom Signal Parameters")),
-            content=ft.Container(
-                content=ft.Column([
-                    ft.Row([
-                        function_dropdown,
-                        amplitude_field,
-                        frequency_field,
-                        phase_field,
-                        offset_field,
-                    ]),
-                    ft.Row([update_custom_button], alignment=ft.MainAxisAlignment.END),
-                ]),
-                padding=ft.padding.all(10),
-            ),
-            expanded=False,
-        ),
-        
-        ft.ExpansionPanel(
-            header=ft.ListTile(title=ft.Text("Signal Operations")),
-            content=ft.Container(
-                content=ft.Column([
-                    ft.Row([operation_switch]),
-                    ft.Row([
-                        operation_dropdown,
-                        second_signal_dropdown,
-                    ]),
-                    ft.Row([show_components_switch]),
-                    ft.Text("Second Custom Signal Parameters", weight=ft.FontWeight.W_500),
-                    ft.Row([
-                        second_function_dropdown,
-                        second_amplitude_field,
-                        second_frequency_field,
-                        second_phase_field,
-                        second_offset_field,
-                    ]),
-                    ft.Row([update_second_custom_button], alignment=ft.MainAxisAlignment.END),
-                ]),
-                padding=ft.padding.all(10),
-            ),
-            expanded=False,
-        ),
-        
-        ft.ExpansionPanel(
-            header=ft.ListTile(title=ft.Text("Signal Processing")),
-            content=ft.Container(
-                content=ft.Column([
-                    ft.Text("Noise Generation", weight=ft.FontWeight.W_500),
-                    ft.Row([
-                        noise_switch,
-                        noise_level_slider,
-                    ]),
-                    ft.Text("Filtering", weight=ft.FontWeight.W_500),
-                    ft.Row([
-                        filter_switch,
-                        filter_type_dropdown,
-                        filter_cutoff_slider,
-                    ]),
-                ]),
-                padding=ft.padding.all(10),
-            ),
-            expanded=False,
+        # Advanced options in expandable sections - FIXED SECTION
+        ft.ExpansionPanelList(
+            controls=[
+                ft.ExpansionPanel(
+                    header=ft.ListTile(title=ft.Text("Custom Signal Parameters")),
+                    content=ft.Container(
+                        content=ft.Column([
+                            ft.Row([
+                                function_dropdown,
+                                amplitude_field,
+                                frequency_field,
+                                phase_field,
+                                offset_field,
+                            ]),
+                            ft.Row([update_custom_button], alignment=ft.MainAxisAlignment.END),
+                        ]),
+                        padding=ft.padding.all(10),
+                    ),
+                    expanded=False,
+                ),
+                
+                ft.ExpansionPanel(
+                    header=ft.ListTile(title=ft.Text("Signal Operations")),
+                    content=ft.Container(
+                        content=ft.Column([
+                            ft.Row([operation_switch]),
+                            ft.Row([
+                                operation_dropdown,
+                                second_signal_dropdown,
+                            ]),
+                            ft.Row([show_components_switch]),
+                            ft.Text("Second Custom Signal Parameters", weight=ft.FontWeight.W_500),
+                            ft.Row([
+                                second_function_dropdown,
+                                second_amplitude_field,
+                                second_frequency_field,
+                                second_phase_field,
+                                second_offset_field,
+                            ]),
+                            ft.Row([update_second_custom_button], alignment=ft.MainAxisAlignment.END),
+                        ]),
+                        padding=ft.padding.all(10),
+                    ),
+                    expanded=False,
+                ),
+                
+                ft.ExpansionPanel(
+                    header=ft.ListTile(title=ft.Text("Signal Processing")),
+                    content=ft.Container(
+                        content=ft.Column([
+                            ft.Text("Noise Generation", weight=ft.FontWeight.W_500),
+                            ft.Row([
+                                noise_switch,
+                                noise_level_slider,
+                            ]),
+                            ft.Text("Filtering", weight=ft.FontWeight.W_500),
+                            ft.Row([
+                                filter_switch,
+                                filter_type_dropdown,
+                                filter_cutoff_slider,
+                            ]),
+                        ]),
+                        padding=ft.padding.all(10),
+                    ),
+                    expanded=False,
+                ),
+            ]
         ),
         
         # Export and status row
