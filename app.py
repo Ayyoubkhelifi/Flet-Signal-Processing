@@ -199,18 +199,18 @@ def main(page: ft.Page):
             "description": "Damped sine wave starting at t=0."
         },
         # ENHANCEMENT: Adding descriptions for new signals
-        "x16": {
-            "equation": "x₁₆(t) = sin(2πt)·sin(20πt)",
-            "description": "Amplitude modulation: low-frequency sine modulated by high-frequency sine."
-        },
-        "x17": {
-            "equation": "x₁₇(t) = sinc(t)",
-            "description": "Sinc function, the Fourier transform of a rectangular pulse."
-        },
-        "x18": {
-            "equation": "x₁₈(t) = exp(-0.1t²)·cos(2πt)",
-            "description": "Gaussian windowed cosine wave."
-        },
+        # "x16": {
+        #     "equation": "x₁₆(t) = sin(2πt)·sin(20πt)",
+        #     "description": "Amplitude modulation: low-frequency sine modulated by high-frequency sine."
+        # },
+        # "x17": {
+        #     "equation": "x₁₇(t) = sinc(t)",
+        #     "description": "Sinc function, the Fourier transform of a rectangular pulse."
+        # },
+        # "x18": {
+        #     "equation": "x₁₈(t) = exp(-0.1t²)·cos(2πt)",
+        #     "description": "Gaussian windowed cosine wave."
+        # },
         "custom": {
             "equation": "Custom signal with user-defined parameters",
             "description": "Create your own signal by selecting a function type and parameters."
@@ -996,15 +996,34 @@ def main(page: ft.Page):
     )
     
     def export_plot():
-        # Create a higher resolution version of the plot for export
-        # Implementation will depend on how you want to handle file saving in your app
-        status_text.value = "Exporting plot..."
-        page.update()
+        # status_text.value = "Exporting plot..."
+        # page.update()
+
+        # # Ensure that image_view.src contains base64 PNG data
+        # if image_view.src.startswith("data:image/png;base64,"):
+        #     # Extract the base64 image data (exclude the header)
+        #     img_base64 = image_view.src.split(",")[1]
+            
+        #     # JavaScript code to trigger the download
+        #     js_code = f"""
+        #     (function() {{
+        #         var a = document.createElement('a');
+        #         a.href = "data:image/png;base64,{img_base64}";
+        #         a.download = "exported_plot.png";
+        #         document.body.appendChild(a);
+        #         a.click();
+        #         document.body.removeChild(a);
+        #     }})();
+        #     """
+        #     # Execute the JS code in the browser
+        #     page.eval_js(js_code)
+        #     status_text.value = "Export completed!"
+        # else:
+        #     status_text.value = "Export failed: No image data available."
         
-        # For web app, we could trigger a download
-        # This is a placeholder - actual implementation would depend on your deployment
-        status_text.value = "Export feature not implemented in this version."
         page.update()
+
+
     
     # Organize UI layout
     page.add(
@@ -1146,7 +1165,6 @@ def main(page: ft.Page):
                 ),
             ]
         ),
-        
         # Export and status row
         ft.Row([
             export_button,
