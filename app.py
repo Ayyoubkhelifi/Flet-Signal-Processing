@@ -1,854 +1,917 @@
 import flet as ft
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 import io
 import base64
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_agg import FigureCanvasAgg
-from scipy import signal as scipy_signal
+import math
+import requests
+import json
 import time
+import os
+from dotenv import load_dotenv
 
-# --- Signal Functions ---
+# Load environment variables from .env file
+load_dotenv()
+
+# Signal processing functions
+def sgn(t):
+    """Sign function"""
+    return np.where(t < 0, -1, np.where(t > 0, 1, 0))
+
+def unit_step(t):
+    """Unit step function U(t)"""
+    return np.where(t < 0, 0, 1)
+
+def delta(t):
+    """Approximation of the delta function"""
+    # Using a narrow Gaussian pulse as an approximation
+    sigma = 0.05
+    return np.where(np.abs(t) < 3*sigma, np.exp(-0.5*(t/sigma)**2)/(sigma*np.sqrt(2*np.pi)), 0)
+
 def rect(t):
+    """Rectangle function"""
     return np.where(np.abs(t) <= 0.5, 1, 0)
 
 def tri(t):
+    """Triangle function"""
     return np.where(np.abs(t) <= 1, 1 - np.abs(t), 0)
 
-def u(t):
-    return np.where(t >= 0, 1, 0)
+def u_function_using_sgn(t):
+    """Express U(t) using sgn(t)"""
+    return 0.5 * (1 + sgn(t))
 
-def delta(t):
-    # Use a narrow gaussian to approximate delta function for better visualization
-    return np.exp(-t**2 / 0.01) / np.sqrt(0.01 * np.pi)
+def x1_function_using_u(t):
+    """Express x₁(t) = Re c(2t) using U(t)"""
+    # Re c(2t) = cos(2πt)
+    # This can be expressed in terms of U(t) by using Fourier series approximation
+    # For simplicity, we'll just return the direct computation
+    return np.cos(2*np.pi*t)
 
-def compute_signal(signal_id, t, custom_params=None):
-    if signal_id == "x1":
-        return 2 * rect(2*t - 1)
-    elif signal_id == "x2":
-        return np.sin(np.pi * t) * rect(t / 2)
-    elif signal_id == "x3":
-        return tri(2 * t)
-    elif signal_id == "x4":
-        return u(t - 2)
-    elif signal_id == "x5":
-        return u(3 - t)
-    elif signal_id == "x6":
-        return 2*delta(t + 1) - delta(t - 2) + delta(t) - 2*delta(t - 1)
-    elif signal_id == "x7":
-        return rect((t - 1)/2) - rect((t + 1)/2)
-    elif signal_id == "x8":
-        return tri(t - 1) - tri(t + 1)
-    elif signal_id == "x9":
-        return rect(t / 2) - tri(t)
-    elif signal_id == "x10":
-        return np.exp(-t) * u(t - 2)
-    elif signal_id == "x11":
-        return np.sin(4 * np.pi * t)
-    elif signal_id == "x12":
-        return np.cos(2 * np.pi * t) * np.exp(-0.2 * t) * u(t)
-    elif signal_id == "x13":
-        return r(t + 1) - 2 * r(t) + r(t - 1)
-   
-    elif signal_id == "custom":
-        if custom_params and "function" in custom_params:
-            func_type = custom_params["function"]
-            amplitude = float(custom_params.get("amplitude", 1))
-            frequency = float(custom_params.get("frequency", 1))
-            phase = float(custom_params.get("phase", 0))
-            offset = float(custom_params.get("offset", 0))
-            
-            if func_type == "sin":
-                return amplitude * np.sin(2 * np.pi * frequency * t + phase) + offset
-            elif func_type == "cos":
-                return amplitude * np.cos(2 * np.pi * frequency * t + phase) + offset
-            elif func_type == "square":
-                return amplitude * scipy_signal.square(2 * np.pi * frequency * t + phase) + offset
-            elif func_type == "sawtooth":
-                return amplitude * scipy_signal.sawtooth(2 * np.pi * frequency * t + phase) + offset
-            elif func_type == "gaussian":
-                return amplitude * np.exp(-(t**2) / (2 * frequency**2)) + offset
-            elif func_type == "exponential":
-                return amplitude * np.exp(frequency * t) + offset
-            elif func_type == "damped_sin":
-                return amplitude * np.exp(-frequency * np.abs(t)) * np.sin(2 * np.pi * 5 * t + phase) + offset
-            elif func_type == "chirp":
-                return amplitude * np.sin(2 * np.pi * (frequency * t + 0.5 * t**2)) + offset
-            elif func_type == "sinc":
-                return amplitude * np.sinc(frequency * t) + offset
-            elif func_type == "impulse_train":
-                period = max(0.01, frequency)
-                return amplitude * np.array([1.0 if abs(ti % period) < 0.01 else 0.0 for ti in t]) + offset
-    return np.zeros_like(t)
+# Signal energy and power calculation
+def calculate_energy(func, t_range):
+    """Calculate the energy of a signal using the trapezoidal rule"""
+    t = np.linspace(t_range[0], t_range[1], 1000)
+    y = func(t)
+    energy = np.trapz(y**2, t)
+    return energy
 
-def r(t):
-    return np.where(t >= 0, t, 0)
+def calculate_power(func, t_range):
+    """Calculate the average power of a signal"""
+    t = np.linspace(t_range[0], t_range[1], 1000)
+    y = func(t)
+    power = np.trapz(y**2, t) / (t_range[1] - t_range[0])
+    return power
 
-# Function to compute signal operations
-def compute_operation(op_type, signal1, signal2):
-    if op_type == "add":
-        return signal1 + signal2
-    elif op_type == "subtract":
-        return signal1 - signal2
-    elif op_type == "multiply":
-        return signal1 * signal2
-    elif op_type == "convolve":
-        return np.convolve(signal1, signal2, mode='same') / (np.sum(signal2) if np.sum(signal2) != 0 else 1)
-    elif op_type == "correlation":
-        return np.correlate(signal1, signal2, mode='same') / (np.sum(signal2**2) if np.sum(signal2**2) != 0 else 1)
-    elif op_type == "amplitude_modulation":
-        return signal1 * (1 + signal2)
-    return signal1
-
-# --- NEW FUNCTION: Compute Energy and Power ---
-def compute_energy_power(y, t):
-    E = np.trapz(np.abs(y)**2, t)
-    P = E / (t[-1] - t[0])
-    if E > 300:
-        E_disp = "Infini"
-        P_disp = round(P, 2)
+def classify_signal(func, t_range):
+    """Classify a signal as energy signal, power signal, or both"""
+    energy = calculate_energy(func, t_range)
+    power = calculate_power(func, t_range)
+    
+    if np.isfinite(energy) and energy > 0 and (power == 0 or not np.isfinite(power)):
+        return "Energy Signal", energy, power
+    elif energy == float('inf') and np.isfinite(power) and power > 0:
+        return "Power Signal", energy, power
+    elif np.isfinite(energy) and energy > 0 and np.isfinite(power) and power > 0:
+        return "Both Energy and Power Signal", energy, power
     else:
-        E_disp = str(round(E, 2))
-        P_disp = 0
-    return E_disp, P_disp
+        return "Neither Energy nor Power Signal", energy, power
+
+def generate_plot(func, t_range, title, xlabel="t", ylabel="Amplitude", grid=True, dark_mode=False):
+    """Generate a matplotlib plot and convert to base64 for display in Flet"""
+    fig = Figure(figsize=(10, 6), dpi=100)
+    ax = fig.add_subplot(111)
+    
+    t = np.linspace(t_range[0], t_range[1], 1000)
+    y = func(t)
+    
+    ax.plot(t, y)
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    
+    if grid:
+        ax.grid(True, linestyle='--', alpha=0.7)
+    
+    # Set dark mode if requested
+    if dark_mode:
+        fig.patch.set_facecolor('#303030')
+        ax.set_facecolor('#303030')
+        ax.xaxis.label.set_color('white')
+        ax.yaxis.label.set_color('white')
+        ax.title.set_color('white')
+        ax.tick_params(axis='x', colors='white')
+        ax.tick_params(axis='y', colors='white')
+        ax.spines['bottom'].set_color('white')
+        ax.spines['top'].set_color('white')
+        ax.spines['right'].set_color('white')
+        ax.spines['left'].set_color('white')
+        ax.grid(True, linestyle='--', alpha=0.3, color='white')
+    
+    # Convert plot to PNG image
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', bbox_inches='tight')
+    buf.seek(0)
+    
+    # Convert PNG to base64 string
+    img_str = base64.b64encode(buf.read()).decode('utf-8')
+    
+    plt.close(fig)
+    return img_str
 
 def main(page: ft.Page):
-    page.title = "Advanced Signal Visualizer"
+    page.title = "Signal Processing - Exercise 2"
     page.theme_mode = ft.ThemeMode.LIGHT
-    page.padding = 20
-    page.scroll = ft.ScrollMode.AUTO
+    page.padding = 0
+    page.spacing = 0
+    page.scroll = "auto"  # Setting page scroll to auto
+    
+    # Define range for t
+    t_min = -5
+    t_max = 5
+    
+    # Function to evaluate x(t), y(t), z(t), w(t)
+    def x_function(t):
+        return (t**3 - 2*t + 5) * delta(3-t)
+    
+    def y_function(t):
+        return (np.cos(np.pi*t) - t) * delta(t-1)
+    
+    def z_function(t):
+        return (2*t - 1) * delta(t-2)
+    
+    def w_function(t):
+        # For simplicity, we're using rect(t) as the function to convolve with delta
+        # In a real application, you might want to implement a proper convolution
+        return rect(t) * delta(t-2)
+    
+    # Signal functions for x₁₁(t) = sin(4πt) from the exercise
+    def x11_function(t):
+        """x₁₁(t) = sin(4πt) - for determining frequency and period"""
+        return np.sin(4*np.pi*t)
 
-    current_signal = "x1"
-    t_range = (-5, 5)
-    custom_params = {
-        "function": "sin",
-        "amplitude": "1",
-        "frequency": "1",
-        "phase": "0",
-        "offset": "0"
-    }
-    
-    operation_enabled = False
-    operation_type = "add"
-    second_signal = "x3"
-    second_signal_params = custom_params.copy()
-    
-    signal_info = {
-        "x1": {
-            "equation": "x₁(t) = 2·Rect(2t - 1)",
-            "description": "Rectangular pulse of amplitude 2, shifted by 0.5 and scaled by 2 in time."
-        },
-        "x2": {
-            "equation": "x₂(t) = sin(πt)·Rect(t/2)",
-            "description": "Rectangular pulse scaled in time by a factor of 1/2, multiplied by sin(π)."
-        },
-        "x3": {
-            "equation": "x₃(t) = Tri(2t)",
-            "description": "Triangular pulse scaled in time by a factor of 2."
-        },
-        "x4": {
-            "equation": "x₄(t) = U(t - 2)",
-            "description": "Unit step function shifted to the right by 2 units."
-        },
-        "x5": {
-            "equation": "x₅(t) = U(3 - t)",
-            "description": "Inverted unit step function with a transition at t=3."
-        },
-        "x6": {
-            "equation": "x₆(t) = 2δ(t+1) - δ(t-2) + δ(t) - 2δ(t-1)",
-            "description": "Sum of scaled and shifted delta functions."
-        },
-        "x7": {
-            "equation": "x₇(t) = Rect((t-1)/2) - Rect((t+1)/2)",
-            "description": "Difference of two rectangular pulses, creating a bipolar pulse."
-        },
-        "x8": {
-            "equation": "x₈(t) = Tri(t-1) - Tri(t+1)",
-            "description": "Difference of two triangular pulses, shifted in opposite directions."
-        },
-        "x9": {
-            "equation": "x₉(t) = Rect(t/2) - Tri(t)",
-            "description": "Difference between a rectangular pulse and triangular pulse."
-        },
-        "x10": {
-            "equation": "x₁₀(t) = exp(-t)·U(t-2)",
-            "description": "Exponential decay starting at t=2."
-        },
-        "x11": {
-            "equation": "x₁₁(t) = sin(4πt)",
-            "description": "Sinusoidal signal with frequency of 2 Hz."
-        },
-        # "x12": {
-        #     "equation": "x₁₂(t) = cos(2πt)·exp(-0.2t)·U(t)",
-        #     "description": "Damped cosine wave starting at t=0."
-        # },
-        "x13": {
-            "equation": "x₁₃(t) = R(t+1) - 2R(t) + R(t-1)",
-            "description": "Combination of three shifted ramp functions."
-        },
-        "custom": {
-            "equation": "Custom signal with user-defined parameters",
-            "description": "Create your own signal by selecting a function type and parameters."
-        },
-    }
-    
-    # --- NEW: Energy and Power display widget ---
-    energy_power_display = ft.Text(
-        value="Energy: -, Power: -",
-        size=14,
-        weight=ft.FontWeight.W_400,
+    # Define the UI elements we'll need
+    dark_mode_switch = ft.Switch(
+        label="Dark Mode",
+        value=False,
+        on_change=lambda e: toggle_theme(e.control.value)
     )
     
-    def toggle_theme(e):
-        page.theme_mode = ft.ThemeMode.DARK if page.theme_mode == ft.ThemeMode.LIGHT else ft.ThemeMode.LIGHT
-        theme_icon_button.icon = ft.Icons.DARK_MODE if page.theme_mode == ft.ThemeMode.LIGHT else ft.Icons.LIGHT_MODE
-        update_plot()
-        page.update()
+    # Create components for tab 1 - Signal Visualization
+    function_dropdown = ft.Dropdown(
+        width=400,
+        label="Select Signal Function",
+        options=[
+            ft.dropdown.Option("U(t) in terms of sgn(t)"),
+            ft.dropdown.Option("x₁(t) in terms of U(t)"),
+            ft.dropdown.Option("x(t) = (t³ - 2t + 5)δ(3-t)"),
+            ft.dropdown.Option("y(t) = (cos(πt) - t)δ(t-1)"),
+            ft.dropdown.Option("z(t) = (2t - 1)δ(t-2)"),
+            ft.dropdown.Option("w(t) = rect(t)*δ(t-2)"),
+            ft.dropdown.Option("x₁₁(t) = sin(4πt)"),
+        ],
+        value="U(t) in terms of sgn(t)",
+    )
     
-    image_view = ft.Image(
-        src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z/C/HwAGgwJ/lLryzQAAAABJRU5ErkJggg==",
+    t_min_slider = ft.Slider(
+        min=-10.0,
+        max=0.0,
+        value=t_min,
+        divisions=20,
+        label="{value}",
+        width=400,
+    )
+    
+    t_max_slider = ft.Slider(
+        min=0.0,
+        max=10.0,
+        value=t_max,
+        divisions=20,
+        label="{value}",
+        width=400,
+    )
+    
+    range_text = ft.Text(f"t range: [{t_min}, {t_max}]")
+    
+    formula_text = ft.Text(
+        "U(t) = 0.5 * (1 + sgn(t))",
+        size=18,
+        weight=ft.FontWeight.BOLD,
+    )
+    
+    plot_image = ft.Image(
+        src_base64=generate_plot(
+            u_function_using_sgn,
+            [t_min, t_max],
+            "U(t) in terms of sgn(t)",
+            dark_mode=False
+        ),
+        width=800,
+        height=400,
         fit=ft.ImageFit.CONTAIN,
     )
     
-    equation_display = ft.Text(
-        signal_info[current_signal]["equation"],
+    # Create components for tab 2 - Energy & Power
+    energy_dropdown = ft.Dropdown(
+        width=400,
+        label="Select Signal Function for Energy Analysis",
+        options=[
+            ft.dropdown.Option("U(t) in terms of sgn(t)"),
+            ft.dropdown.Option("x₁(t) in terms of U(t)"),
+            ft.dropdown.Option("x(t) = (t³ - 2t + 5)δ(3-t)"),
+            ft.dropdown.Option("y(t) = (cos(πt) - t)δ(t-1)"),
+            ft.dropdown.Option("z(t) = (2t - 1)δ(t-2)"),
+            ft.dropdown.Option("w(t) = rect(t)*δ(t-2)"),
+            ft.dropdown.Option("x₁₁(t) = sin(4πt)"),
+        ],
+        value="U(t) in terms of sgn(t)",
+    )
+    
+    classification_text = ft.Text(
+        "Click 'Calculate' to analyze signal energy & power",
         size=16,
-        weight=ft.FontWeight.W_500,
     )
     
-    description_display = ft.Text(
-        signal_info[current_signal]["description"],
-        size=14,
-        italic=True,
+    energy_text = ft.Text(
+        "Energy: -",
+        size=16,
     )
     
-    def update_signal_info_display():
-        nonlocal current_signal
-        equation_display.value = signal_info.get(current_signal, {}).get("equation", "")
-        description_display.value = signal_info.get(current_signal, {}).get("description", "")
+    power_text = ft.Text(
+        "Power: -",
+        size=16,
+    )
+    
+    calculate_button = ft.ElevatedButton(
+        "Calculate Energy & Power",
+        icon=ft.Icons.CALCULATE_OUTLINED,
+    )
+    
+    energy_plot_image = ft.Image(
+        width=800,
+        height=400,
+        fit=ft.ImageFit.CONTAIN,
+    )
+    
+    # Create components for tab 3 - Frequency Analysis
+    frequency_text = ft.Text(
+        "Frequency (f₀): 2 Hz",
+        size=16,
+    )
+    
+    period_text = ft.Text(
+        "Period (T): 0.5 seconds",
+        size=16,
+    )
+    
+    frequency_plot_image = ft.Image(
+        src_base64=generate_plot(
+            x11_function,
+            [-1, 1],
+            "x₁₁(t) = sin(4πt) - Frequency: 2 Hz, Period: 0.5s",
+            dark_mode=False
+        ),
+        width=800,
+        height=400,
+        fit=ft.ImageFit.CONTAIN,
+    )
+    
+    # AI Assistant Components
+    ai_signal_dropdown = ft.Dropdown(
+        width=400,
+        label="Select Signal for AI Explanation",
+        options=[
+            ft.dropdown.Option("U(t) in terms of sgn(t)"),
+            ft.dropdown.Option("x₁(t) in terms of U(t)"),
+            ft.dropdown.Option("x(t) = (t³ - 2t + 5)δ(3-t)"),
+            ft.dropdown.Option("y(t) = (cos(πt) - t)δ(t-1)"),
+            ft.dropdown.Option("z(t) = (2t - 1)δ(t-2)"),
+            ft.dropdown.Option("w(t) = rect(t)*δ(t-2)"),
+            ft.dropdown.Option("x₁₁(t) = sin(4πt)"),
+        ],
+        value="U(t) in terms of sgn(t)",
+    )
+    
+    ask_button = ft.ElevatedButton(
+        "Generate Explanation",
+        icon=ft.Icons.SMART_TOY_OUTLINED,
+    )
+    
+    ai_response_text = ft.Markdown(
+        "Select a signal function and click 'Generate Explanation' to learn more...",
+        selectable=True,
+        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+        code_theme="atom-one-dark" if page.theme_mode == ft.ThemeMode.DARK else "github",
+    )
+    
+    ai_thinking_progress = ft.ProgressRing(width=24, height=24, visible=False)
+    
+    ai_explanation_card = ft.Card(
+        content=ft.Container(
+            content=ft.Column([
+                ai_response_text,
+            ]),
+            padding=20,
+            expand=True,
+            width=800,
+        ),
+        expand=True,
+    )
+    
+    # Status text for debugging
+    ai_status_text = ft.Text(
+        "",
+        size=12,
+        color=ft.Colors.GREY_500,
+        visible=False,
+    )
+    
+    # OpenRouter API integration
+    OPENROUTER_API_URL = os.environ.get("OPENROUTER_API_URL", "https://openrouter.ai/api/v1")
+    OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+    
+    if not OPENROUTER_API_KEY:
+        print("Warning: OPENROUTER_API_KEY not found in environment variables. AI features will not work.")
+    
+    def get_signal_details(signal_name):
+        """Get specific details about each signal function for the AI prompt"""
+        details = {
+            "U(t) in terms of sgn(t)": {
+                "definition": "U(t) = 0.5 * (1 + sgn(t))",
+                "implementation": "np.where(t < 0, 0, 1)",
+                "function": "Unit step function expressed using sign function"
+            },
+            "x₁(t) in terms of U(t)": {
+                "definition": "x₁(t) = cos(2πt) approximated using U(t)",
+                "implementation": "np.cos(2*np.pi*t)",
+                "function": "Cosine function expressed in terms of unit step"
+            },
+            "x(t) = (t³ - 2t + 5)δ(3-t)": {
+                "definition": "Polynomial multiplied by shifted delta function",
+                "implementation": "(t**3 - 2*t + 5) * delta(3-t)",
+                "function": "Product of polynomial and shifted delta function"
+            },
+            "y(t) = (cos(πt) - t)δ(t-1)": {
+                "definition": "Cosine minus t, multiplied by shifted delta",
+                "implementation": "(np.cos(np.pi*t) - t) * delta(t-1)",
+                "function": "Product of cosine minus t and shifted delta function"
+            },
+            "z(t) = (2t - 1)δ(t-2)": {
+                "definition": "Linear function multiplied by shifted delta",
+                "implementation": "(2*t - 1) * delta(t-2)",
+                "function": "Product of linear function and shifted delta"
+            },
+            "w(t) = rect(t)*δ(t-2)": {
+                "definition": "Rectangle function multiplied by shifted delta",
+                "implementation": "rect(t) * delta(t-2)",
+                "function": "Product of rectangle function and shifted delta"
+            },
+            "x₁₁(t) = sin(4πt)": {
+                "definition": "Sinusoidal function with frequency 2Hz and period 0.5s",
+                "implementation": "np.sin(4*np.pi*t)",
+                "function": "Sine function with frequency 2Hz"
+            },
+        }
+        return details.get(signal_name, {"definition": "Unknown function", "implementation": "Unknown", "function": "Unknown"})
+    
+    def stream_ai_response(signal_name):
+        """Generate and stream AI response for explaining the selected signal"""
+        signal_details = get_signal_details(signal_name)
+        
+        # Show the thinking indicator
+        ai_thinking_progress.visible = True
+        ai_response_text.value = "Generating explanation..."
+        ai_status_text.value = "Sending request..."
+        ai_status_text.visible = True
+        page.update()
+        
+        # Construct the prompt for the AI
+        prompt = f"""
+        Explain the signal {signal_name} in signal processing:
+        
+        Definition: {signal_details['definition']}
+        Implementation: {signal_details['implementation']}
+        Function Type: {signal_details['function']}
+        
+        Please cover:
+        1. What does this signal represent in signal processing?
+        2. What are its key features and properties?
+        3. How is it calculated or derived mathematically?
+        4. What are common practical applications?
+        5. How does it relate to other signal functions?
+        
+        Format your response with markdown headings.
+        
+        IMPORTANT FOR MATHEMATICAL EXPRESSIONS:
+        - Do NOT use LaTeX format
+        - Use plain text for all mathematics
+        - For example, write x^2 instead of x²
+        - For fractions, use a/b instead of ⅘ or LaTeX fractions
+        - For equations, use plain text like: y(t) = 3*t^2 + 2*t + 1
+        - For special symbols, spell them out (e.g., "pi" instead of π)
+        - When you need to highlight a mathematical expression, use code blocks with the language set to "text":
+        
+        ```text
+        y(t) = sin(2*pi*t)
+        ```
+        
+        Provide a comprehensive explanation for students learning signal processing.
+        """
+        
+        # Prepare the request to OpenRouter API
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {OPENROUTER_API_KEY}',
+            'HTTP-Referer': 'https://signal.app',
+            'X-Title': 'signal App',
+            'Accept': 'text/event-stream',  # Important for SSE
+        }
+        
+        data = {
+            "model": "deepseek/deepseek-chat",  # Using a more reliable model
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.7,
+            "max_tokens": 800,
+            "stream": True  # Request streaming response
+        }
+        
+        try:
+            # Clear previous response
+            ai_response_text.value = ""
+            page.update()
+            
+            # Send request to OpenRouter API
+            ai_status_text.value = "Connecting to AI service..."
+            page.update()
+            
+            response = requests.post(
+                f"{OPENROUTER_API_URL}/chat/completions",
+                headers=headers,
+                json=data,
+                stream=True  # Enable streaming
+            )
+            
+            if response.status_code != 200:
+                ai_response_text.value = f"Error: API returned status code {response.status_code}\n{response.text}"
+                ai_status_text.value = f"Error: Status code {response.status_code}"
+                page.update()
+                ai_thinking_progress.visible = False
+                return
+                
+            ai_status_text.value = "Receiving response..."
+            page.update()
+                
+            # Process the streaming response
+            buffer = ""
+            for line in response.iter_lines():
+                if line:
+                    line_text = line.decode('utf-8')
+                    
+                    # Handle OpenRouter processing messages
+                    if ": OPENROUTER PROCESSING" in line_text:
+                        ai_status_text.value = "Processing request..."
+                        continue
+                    
+                    # Handle data chunks
+                    if line_text.startswith('data: '):
+                        line_json = line_text[6:]  # Remove 'data: ' prefix
+                        
+                        # Check for [DONE] message
+                        if line_json.strip() == '[DONE]':
+                            break
+                        
+                        try:
+                            # Parse JSON response
+                            json_response = json.loads(line_json)
+                            if 'choices' in json_response and len(json_response['choices']) > 0:
+                                delta = json_response['choices'][0].get('delta', {})
+                                if 'content' in delta:
+                                    content = delta['content']
+                                    buffer += content
+                                    
+                                    # Update the UI with new content
+                                    ai_response_text.value = buffer
+                                    page.update()
+                        except json.JSONDecodeError:
+                            continue
+                    elif "OPENROUTER" not in line_text:  # Ignore OPENROUTER messages
+                        # Debug other unexpected lines
+                        print(f"Unexpected line format: {line_text}")
+            
+            # Post-process the response to enhance math rendering
+            final_response = buffer
+            
+            # Convert math code blocks to prettier format
+            final_response = enhance_math_rendering(final_response)
+            
+            # Update with enhanced response
+            ai_response_text.value = final_response
+            ai_status_text.value = "Completed successfully"
+            page.update()
+            
+        except Exception as e:
+            ai_response_text.value = f"Error generating explanation: {str(e)}"
+            ai_status_text.value = f"Exception: {str(e)}"
+            print(f"Exception in AI streaming: {str(e)}")
+            page.update()
+        finally:
+            # Hide the thinking indicator
+            ai_thinking_progress.visible = False
+            page.update()
+            
+            # Hide status after 3 seconds
+            time.sleep(3)
+            ai_status_text.visible = False
+            page.update()
+            
+    def enhance_math_rendering(text):
+        """Enhance the rendering of math expressions in the response"""
+        # Make equations stand out more
+        lines = text.split('\n')
+        in_math_block = False
+        result = []
+        
+        for line in lines:
+            if line.strip() == '```text' or line.strip() == '```math':
+                in_math_block = True
+                result.append('**Equation:**')
+                result.append('```')
+                continue
+            elif line.strip() == '```' and in_math_block:
+                in_math_block = False
+                result.append('```')
+                continue
+            
+            if in_math_block:
+                # Clean up the equation line and make it more readable
+                eq_line = line.strip()
+                # Replace common math symbols with more readable alternatives if needed
+                eq_line = eq_line.replace('*', '·').replace('^', '^')
+                result.append(eq_line)
+            else:
+                # Look for inline math patterns and make them more readable
+                if '=' in line and ('(' in line or ')' in line or '+' in line or '-' in line):
+                    parts = []
+                    for part in line.split():
+                        if '=' in part and any(c in part for c in '()+-*/^'):
+                            # This part looks like a mathematical expression
+                            parts.append(f"`{part}`")
+                        else:
+                            parts.append(part)
+                    line = ' '.join(parts)
+                result.append(line)
+                
+        return '\n'.join(result)
+    
+    # Connect the button to the AI function
+    ask_button.on_click = lambda e: stream_ai_response(ai_signal_dropdown.value)
+    
+    # Define the update functions
+    def update_t_range(e):
+        nonlocal t_min, t_max
+        t_min = t_min_slider.value
+        t_max = t_max_slider.value
+        range_text.value = f"t range: [{t_min:.1f}, {t_max:.1f}]"
+        update_plot()
         page.update()
     
-    status_text = ft.Text("", size=12, color=ft.Colors.GREY)
+    # Connect sliders to update function
+    t_min_slider.on_change = update_t_range
+    t_max_slider.on_change = update_t_range
     
     def update_plot():
-        nonlocal current_signal, t_range, custom_params, operation_enabled, operation_type, second_signal, second_signal_params
+        selected_function = function_dropdown.value
         
-        status_text.value = "Processing..."
+        if selected_function == "U(t) in terms of sgn(t)":
+            func = u_function_using_sgn
+            title = "U(t) in terms of sgn(t)"
+            formula_text.value = "U(t) = 0.5 * (1 + sgn(t))"
+        elif selected_function == "x₁(t) in terms of U(t)":
+            func = x1_function_using_u
+            title = "x₁(t) = Re c(2t) in terms of U(t)"
+            formula_text.value = "x₁(t) = cos(2πt) approximated using U(t)"
+        elif selected_function == "x(t) = (t³ - 2t + 5)δ(3-t)":
+            func = x_function
+            title = "x(t) = (t³ - 2t + 5)δ(3-t)"
+            formula_text.value = "x(t) = (t³ - 2t + 5)δ(3-t)"
+        elif selected_function == "y(t) = (cos(πt) - t)δ(t-1)":
+            func = y_function
+            title = "y(t) = (cos(πt) - t)δ(t-1)"
+            formula_text.value = "y(t) = (cos(πt) - t)δ(t-1)"
+        elif selected_function == "z(t) = (2t - 1)δ(t-2)":
+            func = z_function
+            title = "z(t) = (2t - 1)δ(t-2)"
+            formula_text.value = "z(t) = (2t - 1)δ(t-2)"
+        elif selected_function == "x₁₁(t) = sin(4πt)":
+            func = x11_function
+            title = "x₁₁(t) = sin(4πt)"
+            formula_text.value = "x₁₁(t) = sin(4πt) - Frequency: 2 Hz, Period: 0.5s"
+        else:  # w(t) = rect(t)*δ(t-2)
+            func = w_function
+            title = "w(t) = rect(t)*δ(t-2)"
+            formula_text.value = "w(t) = rect(t)*δ(t-2) (convolution)"
+        
+        is_dark = page.theme_mode == ft.ThemeMode.DARK
+        plot_image.src_base64 = generate_plot(
+            func, 
+            [t_min, t_max], 
+            title, 
+            dark_mode=is_dark
+        )
         page.update()
+    
+    # Connect dropdown to update function
+    function_dropdown.on_change = lambda e: update_plot()
+    
+    def calculate_energy_power(e):
+        selected_function = energy_dropdown.value
         
-        start_time = time.time()
-        signal_id = current_signal
-        t = np.linspace(t_range[0], t_range[1], 1000)
+        if selected_function == "U(t) in terms of sgn(t)":
+            func = u_function_using_sgn
+            title = "Energy Analysis: U(t) in terms of sgn(t)"
+        elif selected_function == "x₁(t) in terms of U(t)":
+            func = x1_function_using_u
+            title = "Energy Analysis: x₁(t) = Re c(2t)"
+        elif selected_function == "x(t) = (t³ - 2t + 5)δ(3-t)":
+            func = x_function
+            title = "Energy Analysis: x(t) = (t³ - 2t + 5)δ(3-t)"
+        elif selected_function == "y(t) = (cos(πt) - t)δ(t-1)":
+            func = y_function
+            title = "Energy Analysis: y(t) = (cos(πt) - t)δ(t-1)"
+        elif selected_function == "z(t) = (2t - 1)δ(t-2)":
+            func = z_function
+            title = "Energy Analysis: z(t) = (2t - 1)δ(t-2)"
+        elif selected_function == "x₁₁(t) = sin(4πt)":
+            func = x11_function
+            title = "Energy Analysis: x₁₁(t) = sin(4πt)"
+        else:  # w(t) = rect(t)*δ(t-2)
+            func = w_function
+            title = "Energy Analysis: w(t) = rect(t)*δ(t-2)"
         
-        if signal_id == "custom":
-            y1 = compute_signal(signal_id, t, custom_params)
-        else:
-            y1 = compute_signal(signal_id, t)
+        classification, energy, power = classify_signal(func, [t_min, t_max])
         
-        if operation_enabled:
-            if second_signal == "custom":
-                y2 = compute_signal("custom", t, second_signal_params)
-            else:
-                y2 = compute_signal(second_signal, t)
-            y = compute_operation(operation_type, y1, y2)
-        else:
-            y = y1
+        classification_text.value = f"Classification: {classification}"
+        energy_text.value = f"Energy: {energy:.6f}" if np.isfinite(energy) else "Energy: ∞"
+        power_text.value = f"Power: {power:.6f}" if np.isfinite(power) else "Power: ∞"
         
-        if noise_switch.value:
-            noise_level = float(noise_level_slider.value)
-            y = y + noise_level * np.random.randn(len(t))
+        # Generate energy visualization
+        is_dark = page.theme_mode == ft.ThemeMode.DARK
         
-        if filter_switch.value:
-            filter_type = filter_type_dropdown.value
-            cutoff = float(filter_cutoff_slider.value)
-            nyquist = 0.5 * (1 / (t[1] - t[0]))
-            normalized_cutoff = cutoff / nyquist
-            if filter_type == "lowpass":
-                b, a = scipy_signal.butter(4, normalized_cutoff, 'low')
-                y = scipy_signal.filtfilt(b, a, y)
-            elif filter_type == "highpass":
-                b, a = scipy_signal.butter(4, normalized_cutoff, 'high')
-                y = scipy_signal.filtfilt(b, a, y)
-            elif filter_type == "bandpass":
-                b, a = scipy_signal.butter(4, [normalized_cutoff * 0.5, normalized_cutoff], 'band')
-                y = scipy_signal.filtfilt(b, a, y)
-            elif filter_type == "notch":
-                quality_factor = 30.0
-                b, a = scipy_signal.iirnotch(normalized_cutoff, quality_factor)
-                y = scipy_signal.filtfilt(b, a, y)
-            elif filter_type == "median":
-                kernel_size = max(3, int(normalized_cutoff * 20))
-                if kernel_size % 2 == 0:
-                    kernel_size += 1
-                y = scipy_signal.medfilt(y, kernel_size=kernel_size)
+        # Create a plot showing the signal and its squared value (energy density)
+        fig = Figure(figsize=(10, 6), dpi=100)
+        t = np.linspace(t_min, t_max, 1000)
+        y = func(t)
         
-        # --- NEW: Calculate Energy and Power ---
-        energy, power = compute_energy_power(y, t)
-        energy_power_display.value = f"Energy: {energy}, Power: {power}"
+        ax1 = fig.add_subplot(211)
+        ax1.plot(t, y, 'b-')
+        ax1.set_title(f"Signal: {selected_function}")
+        ax1.set_ylabel("Amplitude")
+        ax1.grid(True, linestyle='--', alpha=0.7)
         
-        is_dark_mode = page.theme_mode == ft.ThemeMode.DARK
-        bg_color = "#1a1a1a" if is_dark_mode else "#ffffff"
-        text_color = "#ffffff" if is_dark_mode else "#000000"
-        grid_color = "#333333" if is_dark_mode else "#dddddd"
+        ax2 = fig.add_subplot(212)
+        ax2.plot(t, y**2, 'r-')
+        ax2.set_title("Energy Density: |x(t)|²")
+        ax2.set_xlabel("t")
+        ax2.set_ylabel("Energy Density")
+        ax2.grid(True, linestyle='--', alpha=0.7)
         
-        fig = Figure(figsize=(10, 5), facecolor=bg_color)
-        canvas = FigureCanvasAgg(fig)
+        # Set dark mode if requested
+        if is_dark:
+            fig.patch.set_facecolor('#303030')
+            for ax in [ax1, ax2]:
+                ax.set_facecolor('#303030')
+                ax.xaxis.label.set_color('white')
+                ax.yaxis.label.set_color('white')
+                ax.title.set_color('white')
+                ax.tick_params(axis='x', colors='white')
+                ax.tick_params(axis='y', colors='white')
+                for spine in ax.spines.values():
+                    spine.set_color('white')
+                ax.grid(True, linestyle='--', alpha=0.3, color='white')
         
-        if view_mode_tabs.selected_index == 0:
-            ax1 = fig.add_subplot(111)
-            ax1.set_facecolor(bg_color)
-            line_style = {"solid": "-", "dashed": "--", "dotted": ":"}.get(line_style_dropdown.value, "-")
-            ax1.plot(t, y, color=line_color_dropdown.value, linewidth=float(line_width_slider.value), linestyle=line_style)
-            if operation_enabled and show_components_switch.value:
-                ax1.plot(t, y1, color="#aaaaaa", linewidth=1, linestyle="--", alpha=0.7, label=f"Signal {current_signal}")
-                ax1.plot(t, y2, color="#888888", linewidth=1, linestyle=":", alpha=0.7, label=f"Signal {second_signal}")
-                ax1.legend()
-            ax1.set_xlabel("Time (t)", color=text_color, fontsize=12)
-            ax1.set_ylabel("Amplitude", color=text_color, fontsize=12)
-            if operation_enabled:
-                op_symbols = {"add": "+", "subtract": "-", "multiply": "×", "convolve": "*", 
-                              "correlation": "⋆", "amplitude_modulation": "AM"}
-                title = f"Signal {current_signal} {op_symbols.get(operation_type, '?')} Signal {second_signal}"
-            else:
-                title = f"Signal {signal_id}"
-            ax1.set_title(title, color=text_color, fontsize=14)
-            if grid_switch.value:
-                ax1.grid(True, linestyle='--', alpha=0.7, color=grid_color)
-            else:
-                ax1.grid(False)
-            if zero_lines_switch.value:
-                ax1.axhline(y=0, color=text_color, linestyle='-', alpha=0.3)
-                ax1.axvline(x=0, color=text_color, linestyle='-', alpha=0.3)
-            ax1.tick_params(axis='x', colors=text_color)
-            ax1.tick_params(axis='y', colors=text_color)
-            for spine in ax1.spines.values():
-                spine.set_color(text_color)
-        
-        elif view_mode_tabs.selected_index == 1:
-            ax1 = fig.add_subplot(211)
-            ax1.set_facecolor(bg_color)
-            ax1.plot(t, y, color=line_color_dropdown.value, linewidth=float(line_width_slider.value))
-            if operation_enabled and show_components_switch.value:
-                ax1.plot(t, y1, color="#aaaaaa", linewidth=1, linestyle="--", alpha=0.7, label=f"Signal {current_signal}")
-                ax1.plot(t, y2, color="#888888", linewidth=1, linestyle=":", alpha=0.7, label=f"Signal {second_signal}")
-                ax1.legend()
-            ax1.set_xlabel("Time (t)", color=text_color, fontsize=12)
-            ax1.set_ylabel("Amplitude", color=text_color, fontsize=12)
-            if operation_enabled:
-                op_symbols = {"add": "+", "subtract": "-", "multiply": "×", "convolve": "*", 
-                              "correlation": "⋆", "amplitude_modulation": "AM"}
-                title = f"Time Domain - Signal {current_signal} {op_symbols.get(operation_type, '?')} Signal {second_signal}"
-            else:
-                title = f"Time Domain - Signal {signal_id}"
-            ax1.set_title(title, color=text_color, fontsize=14)
-            if grid_switch.value:
-                ax1.grid(True, linestyle='--', alpha=0.7, color=grid_color)
-            else:
-                ax1.grid(False)
-            ax1.tick_params(axis='x', colors=text_color)
-            ax1.tick_params(axis='y', colors=text_color)
-            for spine in ax1.spines.values():
-                spine.set_color(text_color)
-            ax2 = fig.add_subplot(212)
-            ax2.set_facecolor(bg_color)
-            dt = t[1] - t[0]
-            n = len(t)
-            Y = np.fft.fftshift(np.fft.fft(y) / n)
-            freq = np.fft.fftshift(np.fft.fftfreq(n, dt))
-            ax2.plot(freq, np.abs(Y), color="#ff5722", linewidth=2)
-            if operation_enabled and show_components_switch.value:
-                Y1 = np.fft.fftshift(np.fft.fft(y1) / n)
-                Y2 = np.fft.fftshift(np.fft.fft(y2) / n)
-                ax2.plot(freq, np.abs(Y1), color="#aaaaaa", linewidth=1, linestyle="--", alpha=0.7, label=f"Signal {current_signal}")
-                ax2.plot(freq, np.abs(Y2), color="#888888", linewidth=1, linestyle=":", alpha=0.7, label=f"Signal {second_signal}")
-                ax2.legend()
-            ax2.set_xlabel("Frequency (Hz)", color=text_color, fontsize=12)
-            ax2.set_ylabel("Magnitude", color=text_color, fontsize=12)
-            ax2.set_title("Frequency Domain", color=text_color, fontsize=14)
-            if grid_switch.value:
-                ax2.grid(True, linestyle='--', alpha=0.7, color=grid_color)
-            else:
-                ax2.grid(False)
-            ax2.tick_params(axis='x', colors=text_color)
-            ax2.tick_params(axis='y', colors=text_color)
-            for spine in ax2.spines.values():
-                spine.set_color(text_color)
-            freq_limit = float(freq_limit_slider.value)
-            ax2.set_xlim(-freq_limit, freq_limit)
-        
-        # (Other view modes remain unchanged for brevity)
-        
-        fig.tight_layout()
+        # Convert plot to PNG image
         buf = io.BytesIO()
-        fig.savefig(buf, format='png', dpi=100)
+        fig.tight_layout()
+        fig.savefig(buf, format='png', bbox_inches='tight')
         buf.seek(0)
-        img_data = base64.b64encode(buf.getvalue()).decode('utf-8')
-        image_view.src = f"data:image/png;base64,{img_data}"
         
-        end_time = time.time()
-        status_text.value = f"Processing completed in {end_time - start_time:.2f} seconds."
+        # Convert PNG to base64 string
+        img_str = base64.b64encode(buf.read()).decode('utf-8')
+        
+        plt.close(fig)
+        energy_plot_image.src_base64 = img_str
+        
         page.update()
     
-    # --- UI Components ---
-    signal_dropdown = ft.Dropdown(
-        label="Select Signal",
-        value=current_signal,
-        options=[ft.dropdown.Option(key, f"Signal {key}") for key in sorted([k for k in signal_info.keys() if k != "custom"])] +
-                [ft.dropdown.Option("custom", "Custom Signal")],
-        on_change=lambda e: set_signal(e.control.value),
-        width=200,
-    )
+    # Connect button to calculate function
+    calculate_button.on_click = calculate_energy_power
     
-    def set_signal(signal_id):
-        nonlocal current_signal
-        current_signal = signal_id
-        update_signal_info_display()
-        update_plot()
+    def toggle_theme(is_dark):
+        page.theme_mode = ft.ThemeMode.DARK if is_dark else ft.ThemeMode.LIGHT
+        update_plot()  # Regenerate plot with appropriate theme
+        
+        # Also update energy plot if it exists
+        if energy_plot_image.src_base64:
+            calculate_energy_power(None)
+            
+        # Update frequency plot
+        is_dark = page.theme_mode == ft.ThemeMode.DARK
+        frequency_plot_image.src_base64 = generate_plot(
+            x11_function,
+            [-1, 1],
+            "x₁₁(t) = sin(4πt) - Frequency: 2 Hz, Period: 0.5s",
+            dark_mode=is_dark
+        )
+        
+        # Update markdown code theme
+        ai_response_text.code_theme = "atom-one-dark" if is_dark else "github"
+        
+        page.update()
     
-    time_min = ft.TextField(
-        label="Min Time",
-        value=str(t_range[0]),
-        width=100,
-        on_submit=lambda e: update_time_range(),
-    )
-    time_max = ft.TextField(
-        label="Max Time",
-        value=str(t_range[1]),
-        width=100,
-        on_submit=lambda e: update_time_range(),
-    )
-    
-    def update_time_range():
-        nonlocal t_range
-        try:
-            min_val = float(time_min.value)
-            max_val = float(time_max.value)
-            if min_val < max_val:
-                t_range = (min_val, max_val)
-                update_plot()
-            else:
-                status_text.value = "Error: Min time must be less than max time."
-                page.update()
-        except ValueError:
-            status_text.value = "Error: Time values must be numbers."
-            page.update()
-    
-    update_time_button = ft.ElevatedButton(
-        "Update Time Range",
-        on_click=lambda e: update_time_range(),
-    )
-    
-    function_dropdown = ft.Dropdown(
-        label="Function Type",
-        value=custom_params["function"],
-        options=[
-            ft.dropdown.Option("sin", "Sine"),
-            ft.dropdown.Option("cos", "Cosine"),
-            ft.dropdown.Option("square", "Square"),
-            ft.dropdown.Option("sawtooth", "Sawtooth"),
-            ft.dropdown.Option("gaussian", "Gaussian"),
-            ft.dropdown.Option("exponential", "Exponential"),
-            ft.dropdown.Option("damped_sin", "Damped Sine"),
-            ft.dropdown.Option("chirp", "Chirp"),
-            ft.dropdown.Option("sinc", "Sinc"),
-            ft.dropdown.Option("impulse_train", "Impulse Train"),
-        ],
-        width=150,
-        on_change=lambda e: update_custom_param("function", e.control.value),
-    )
-    
-    amplitude_field = ft.TextField(
-        label="Amplitude",
-        value=custom_params["amplitude"],
-        width=100,
-        on_change=lambda e: update_custom_param("amplitude", e.control.value),
-    )
-    frequency_field = ft.TextField(
-        label="Frequency",
-        value=custom_params["frequency"],
-        width=100,
-        on_change=lambda e: update_custom_param("frequency", e.control.value),
-    )
-    phase_field = ft.TextField(
-        label="Phase",
-        value=custom_params["phase"],
-        width=100,
-        on_change=lambda e: update_custom_param("phase", e.control.value),
-    )
-    offset_field = ft.TextField(
-        label="Offset",
-        value=custom_params["offset"],
-        width=100,
-        on_change=lambda e: update_custom_param("offset", e.control.value),
-    )
-    
-    def update_custom_param(param, value):
-        nonlocal custom_params
-        custom_params[param] = value
-        if current_signal == "custom":
-            update_plot()
-    
-    update_custom_button = ft.ElevatedButton(
-        "Update Custom Signal",
-        on_click=lambda e: update_plot(),
-    )
-    
-    operation_switch = ft.Switch(
-        label="Enable Signal Operations",
-        value=operation_enabled,
-        on_change=lambda e: toggle_operations(e.control.value),
-    )
-    
-    def toggle_operations(value):
-        nonlocal operation_enabled
-        operation_enabled = value
-        update_plot()
-    
-    operation_dropdown = ft.Dropdown(
-        label="Operation Type",
-        value=operation_type,
-        options=[
-            ft.dropdown.Option("add", "Addition (+)"),
-            ft.dropdown.Option("subtract", "Subtraction (-)"),
-            ft.dropdown.Option("multiply", "Multiplication (×)"),
-            ft.dropdown.Option("convolve", "Convolution (*)"),
-            ft.dropdown.Option("correlation", "Correlation (⋆)"),
-            ft.dropdown.Option("amplitude_modulation", "Amplitude Modulation (AM)"),
-        ],
-        width=200,
-        on_change=lambda e: set_operation_type(e.control.value),
-    )
-    
-    def set_operation_type(op_type):
-        nonlocal operation_type
-        operation_type = op_type
-        if operation_enabled:
-            update_plot()
-    
-    second_signal_dropdown = ft.Dropdown(
-        label="Second Signal",
-        value=second_signal,
-        options=[ft.dropdown.Option(key, f"Signal {key}") for key in sorted([k for k in signal_info.keys() if k != "custom"])] +
-                [ft.dropdown.Option("custom", "Custom Signal")],
-        width=200,
-        on_change=lambda e: set_second_signal(e.control.value),
-    )
-    
-    def set_second_signal(signal_id):
-        nonlocal second_signal
-        second_signal = signal_id
-        if operation_enabled:
-            update_plot()
-    
-    second_function_dropdown = ft.Dropdown(
-        label="Function Type",
-        value=second_signal_params["function"],
-        options=[
-            ft.dropdown.Option("sin", "Sine"),
-            ft.dropdown.Option("cos", "Cosine"),
-            ft.dropdown.Option("square", "Square"),
-            ft.dropdown.Option("sawtooth", "Sawtooth"),
-            ft.dropdown.Option("gaussian", "Gaussian"),
-            ft.dropdown.Option("exponential", "Exponential"),
-            ft.dropdown.Option("damped_sin", "Damped Sine"),
-            ft.dropdown.Option("chirp", "Chirp"),
-            ft.dropdown.Option("sinc", "Sinc"),
-            ft.dropdown.Option("impulse_train", "Impulse Train"),
-        ],
-        width=150,
-        on_change=lambda e: update_second_custom_param("function", e.control.value),
-    )
-    
-    second_amplitude_field = ft.TextField(
-        label="Amplitude",
-        value=second_signal_params["amplitude"],
-        width=100,
-        on_change=lambda e: update_second_custom_param("amplitude", e.control.value),
-    )
-    second_frequency_field = ft.TextField(
-        label="Frequency",
-        value=second_signal_params["frequency"],
-        width=100,
-        on_change=lambda e: update_second_custom_param("frequency", e.control.value),
-    )
-    second_phase_field = ft.TextField(
-        label="Phase",
-        value=second_signal_params["phase"],
-        width=100,
-        on_change=lambda e: update_second_custom_param("phase", e.control.value),
-    )
-    second_offset_field = ft.TextField(
-        label="Offset",
-        value=second_signal_params["offset"],
-        width=100,
-        on_change=lambda e: update_second_custom_param("offset", e.control.value),
-    )
-    
-    def update_second_custom_param(param, value):
-        nonlocal second_signal_params
-        second_signal_params[param] = value
-        if operation_enabled and second_signal == "custom":
-            update_plot()
-    
-    update_second_custom_button = ft.ElevatedButton(
-        "Update Second Custom Signal",
-        on_click=lambda e: update_plot(),
-    )
-    
-    show_components_switch = ft.Switch(
-        label="Show Component Signals",
-        value=True,
-        on_change=lambda e: update_plot(),
-    )
-    
-    view_mode_tabs = ft.Tabs(
+    # Create tabs with the components
+    tabs = ft.Tabs(
         selected_index=0,
+        animation_duration=300,
         tabs=[
-            ft.Tab(text="Time Domain"),
-            ft.Tab(text="Time & Frequency"),
-            ft.Tab(text="Spectrogram"),
-            ft.Tab(text="Phase Spectrum"),
-            ft.Tab(text="3D Waterfall"),
+            ft.Tab(
+                text="Signal Visualization",
+                icon=ft.Icons.ANALYTICS_OUTLINED,
+                content=ft.Container(
+                    content=ft.Column([
+                        ft.Text("Signal Selection", size=20, weight=ft.FontWeight.BOLD),
+                        function_dropdown,
+                        formula_text,
+                        
+                        ft.Container(height=20),
+                        
+                        ft.Text("Time Range", size=20, weight=ft.FontWeight.BOLD),
+                        ft.Row([
+                            ft.Text("Minimum t:"),
+                            t_min_slider,
+                        ]),
+                        ft.Row([
+                            ft.Text("Maximum t:"),
+                            t_max_slider,
+                        ]),
+                        range_text,
+                        
+                        ft.Container(height=20),
+                        
+                        ft.Text("Signal Visualization", size=20, weight=ft.FontWeight.BOLD),
+                        ft.Container(
+                            content=plot_image,
+                            alignment=ft.alignment.center,
+                            border=ft.border.all(1, ft.Colors.GREY_400),
+                            border_radius=10,
+                            padding=10,
+                        ),
+                    ],
+                    scroll=ft.ScrollMode.AUTO,
+                    spacing=10,
+                    ),
+                    padding=20,
+                    height=page.height,
+                    expand=True,
+                )
+            ),
+            ft.Tab(
+                text="Energy & Power",
+                icon=ft.Icons.BOLT_OUTLINED,
+                content=ft.Container(
+                    content=ft.Column([
+                        ft.Text("Signal Energy & Power Analysis", size=20, weight=ft.FontWeight.BOLD),
+                        energy_dropdown,
+                        
+                        ft.Container(height=20),
+                        
+                        ft.Text("Energy Classification", size=20, weight=ft.FontWeight.BOLD),
+                        classification_text,
+                        energy_text,
+                        power_text,
+                        
+                        ft.Container(height=20),
+                        
+                        calculate_button,
+                        
+                        ft.Container(height=20),
+                        
+                        ft.Text("Energy Visualization", size=20, weight=ft.FontWeight.BOLD),
+                        ft.Container(
+                            content=energy_plot_image,
+                            alignment=ft.alignment.center,
+                            border=ft.border.all(1, ft.Colors.GREY_400),
+                            border_radius=10,
+                            padding=10,
+                        ),
+                    ],
+                    scroll=ft.ScrollMode.AUTO,
+                    spacing=10,
+                    ),
+                    padding=20,
+                    height=page.height,
+                    expand=True,
+                )
+            ),
+            ft.Tab(
+                text="Frequency Analysis",
+                icon=ft.Icons.WAVES_OUTLINED,
+                content=ft.Container(
+                    content=ft.Column([
+                        ft.Text("Frequency Analysis for x₁₁(t) = sin(4πt)", size=20, weight=ft.FontWeight.BOLD),
+                        
+                        ft.Container(height=20),
+                        
+                        ft.Text("Signal Parameters:", size=18, weight=ft.FontWeight.BOLD),
+                        frequency_text,
+                        period_text,
+                        
+                        ft.Container(height=20),
+                        
+                        ft.Container(
+                            content=frequency_plot_image,
+                            alignment=ft.alignment.center,
+                            border=ft.border.all(1, ft.Colors.GREY_400),
+                            border_radius=10,
+                            padding=10,
+                        ),
+                    ],
+                    scroll=ft.ScrollMode.AUTO,
+                    spacing=10,
+                    ),
+                    padding=20,
+                    height=page.height,
+                    expand=True,
+                )
+            ),
+            ft.Tab(
+                text="AI Assistant",
+                icon=ft.Icons.SMART_TOY,
+                content=ft.Container(
+                    content=ft.Column([
+                        ft.Text("AI Signal Explanation", size=20, weight=ft.FontWeight.BOLD),
+                        
+                        ft.Container(height=20),
+                        
+                        ft.Row([
+                            ai_signal_dropdown,
+                            ft.Container(width=10),
+                            ask_button,
+                            ft.Container(width=10),
+                            ai_thinking_progress,
+                        ]),
+                        
+                        ai_status_text,
+                        
+                        ft.Container(height=20),
+                        
+                        ft.Text("AI Explanation", size=20, weight=ft.FontWeight.BOLD),
+                        ai_explanation_card,
+                        
+                        ft.Container(height=40),  # Add extra space at bottom
+                    ],
+                    scroll=ft.ScrollMode.AUTO,
+                    spacing=10,
+                    ),
+                    padding=20,
+                    height=page.height,
+                    expand=True,
+                )
+            ),
         ],
-        on_change=lambda e: update_plot(),
+        expand=1,
     )
     
-    grid_switch = ft.Switch(
-        label="Show Grid",
-        value=True,
-        on_change=lambda e: update_plot(),
-    )
-    
-    zero_lines_switch = ft.Switch(
-        label="Show Zero Lines",
-        value=True,
-        on_change=lambda e: update_plot(),
-    )
-    
-    line_color_dropdown = ft.Dropdown(
-        label="Line Color",
-        value="#2196f3",
-        options=[
-            ft.dropdown.Option("#2196f3", "Blue"),
-            ft.dropdown.Option("#4caf50", "Green"),
-            ft.dropdown.Option("#f44336", "Red"),
-            ft.dropdown.Option("#9c27b0", "Purple"),
-            ft.dropdown.Option("#ff9800", "Orange"),
-            ft.dropdown.Option("#607d8b", "Gray"),
-        ],
-        width=150,
-        on_change=lambda e: update_plot(),
-    )
-    
-    line_width_slider = ft.Slider(
-        min=1,
-        max=5,
-        divisions=8,
-        value=2,
-        label="Line Width: {value}",
-        on_change=lambda e: update_plot(),
-    )
-    
-    line_style_dropdown = ft.Dropdown(
-        label="Line Style",
-        value="solid",
-        options=[
-            ft.dropdown.Option("solid", "Solid"),
-            ft.dropdown.Option("dashed", "Dashed"),
-            ft.dropdown.Option("dotted", "Dotted"),
-        ],
-        width=150,
-        on_change=lambda e: update_plot(),
-    )
-    
-    colormap_dropdown = ft.Dropdown(
-        label="Colormap",
-        value="viridis",
-        options=[
-            ft.dropdown.Option("viridis", "Viridis"),
-            ft.dropdown.Option("plasma", "Plasma"),
-            ft.dropdown.Option("inferno", "Inferno"),
-            ft.dropdown.Option("magma", "Magma"),
-            ft.dropdown.Option("cividis", "Cividis"),
-            ft.dropdown.Option("jet", "Jet"),
-            ft.dropdown.Option("hot", "Hot"),
-            ft.dropdown.Option("cool", "Cool"),
-        ],
-        width=150,
-        on_change=lambda e: update_plot(),
-    )
-    
-    freq_limit_slider = ft.Slider(
-        min=1,
-        max=20,
-        divisions=19,
-        value=5,
-        label="Frequency Limit: {value} Hz",
-        on_change=lambda e: update_plot(),
-    )
-    
-    noise_switch = ft.Switch(
-        label="Add Noise",
-        value=False,
-        on_change=lambda e: update_plot(),
-    )
-    
-    noise_level_slider = ft.Slider(
-        min=0,
-        max=1,
-        divisions=20,
-        value=0.1,
-        label="Noise Level: {value}",
-        on_change=lambda e: update_plot(),
-    )
-    
-    filter_switch = ft.Switch(
-        label="Apply Filter",
-        value=False,
-        on_change=lambda e: update_plot(),
-    )
-    
-    filter_type_dropdown = ft.Dropdown(
-        label="Filter Type",
-        value="lowpass",
-        options=[
-            ft.dropdown.Option("lowpass", "Low Pass"),
-            ft.dropdown.Option("highpass", "High Pass"),
-            ft.dropdown.Option("bandpass", "Band Pass"),
-            ft.dropdown.Option("notch", "Notch Filter"),
-            ft.dropdown.Option("median", "Median Filter"),
-        ],
-        width=150,
-        on_change=lambda e: update_plot(),
-    )
-    
-    filter_cutoff_slider = ft.Slider(
-        min=0.1,
-        max=10,
-        divisions=99,
-        value=2,
-        label="Cutoff Frequency: {value} Hz",
-        on_change=lambda e: update_plot(),
-    )
-    
-    theme_icon_button = ft.IconButton(
-        icon=ft.Icons.DARK_MODE,
-        tooltip="Toggle Theme",
-        on_click=toggle_theme,
-    )
-    
-    export_button = ft.ElevatedButton(
-        "Export Plot",
-        icon=ft.Icons.DOWNLOAD,
-        on_click=lambda e: export_plot(),
-    )
-    
-    def export_plot():
-        page.update()
-    
+    # Create layout with scrolling
     page.add(
-        ft.Row([
-            ft.Text("Advanced Signal Visualizer", size=24, weight=ft.FontWeight.BOLD),
-            theme_icon_button
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-        
         ft.Container(
             content=ft.Column([
-                ft.Text("Signal Selection", size=18, weight=ft.FontWeight.W_500),
-                ft.Row([signal_dropdown, ft.Container(width=20), time_min, time_max, update_time_button]),
-                ft.Row([equation_display]),
-                ft.Row([description_display]),
-                # --- NEW: Energy & Power Display ---
-                ft.Row([energy_power_display])
-            ]),
-            padding=10,
-            border=ft.border.all(1, ft.Colors.BLACK12),
-            border_radius=ft.border_radius.all(10),
-            margin=ft.margin.only(bottom=10),
-        ),
-        
-        ft.Container(
-            content=image_view,
-            alignment=ft.alignment.center,
-            padding=10,
-            border=ft.border.all(1, ft.Colors.BLACK12),
-            border_radius=ft.border_radius.all(10),
-            margin=ft.margin.only(bottom=10),
-            width=1000,
-            height=500,
-        ),
-        
-        ft.Container(
-            content=ft.Column([
-                ft.Text("Plot Controls", size=18, weight=ft.FontWeight.W_500),
-                view_mode_tabs,
-                ft.Row([
-                    ft.Column([
-                        ft.Text("Plot Style", weight=ft.FontWeight.W_500),
-                        ft.Row([grid_switch, zero_lines_switch]),
-                        ft.Row([line_color_dropdown, line_style_dropdown]),
-                        ft.Row([line_width_slider]),
-                    ]),
-                    ft.VerticalDivider(width=1, color=ft.Colors.BLACK26),
-                    ft.Column([
-                        ft.Text("Frequency Domain Options", weight=ft.FontWeight.W_500),
-                        ft.Row([freq_limit_slider]),
-                        ft.Row([colormap_dropdown]),
-                    ]),
-                ]),
-            ]),
-            padding=10,
-            border=ft.border.all(1, ft.Colors.BLACK12),
-            border_radius=ft.border_radius.all(10),
-            margin=ft.margin.only(bottom=10),
-        ),
-        
-        ft.ExpansionPanelList(
-            controls=[
-                ft.ExpansionPanel(
-                    header=ft.ListTile(title=ft.Text("Custom Signal Parameters")),
-                    content=ft.Container(
-                        content=ft.Column([
-                            ft.Row([function_dropdown, amplitude_field, frequency_field, phase_field, offset_field]),
-                            ft.Row([update_custom_button], alignment=ft.MainAxisAlignment.END),
-                        ]),
-                        padding=ft.padding.all(10),
-                    ),
-                    expanded=False,
+                ft.Container(
+                    content=ft.Row([
+                        ft.Text("Signal Processing - Exercise 2", size=30, weight=ft.FontWeight.BOLD),
+                        ft.Container(expand=True),
+                        dark_mode_switch,
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    padding=20,
                 ),
-                ft.ExpansionPanel(
-                    header=ft.ListTile(title=ft.Text("Signal Operations")),
-                    content=ft.Container(
-                        content=ft.Column([
-                            ft.Row([operation_switch]),
-                            ft.Row([operation_dropdown, second_signal_dropdown]),
-                            ft.Row([show_components_switch]),
-                            ft.Text("Second Custom Signal Parameters", weight=ft.FontWeight.W_500),
-                            ft.Row([second_function_dropdown, second_amplitude_field, second_frequency_field, second_phase_field, second_offset_field]),
-                            ft.Row([update_second_custom_button], alignment=ft.MainAxisAlignment.END),
-                        ]),
-                        padding=ft.padding.all(10),
-                    ),
-                    expanded=False,
-                ),
-                ft.ExpansionPanel(
-                    header=ft.ListTile(title=ft.Text("Signal Processing")),
-                    content=ft.Container(
-                        content=ft.Column([
-                            ft.Text("Noise Generation", weight=ft.FontWeight.W_500),
-                            ft.Row([noise_switch, noise_level_slider]),
-                            ft.Text("Filtering", weight=ft.FontWeight.W_500),
-                            ft.Row([filter_switch, filter_type_dropdown, filter_cutoff_slider]),
-                        ]),
-                        padding=ft.padding.all(10),
-                    ),
-                    expanded=False,
-                ),
-            ]
-        ),
+                ft.Divider(),
+                tabs,
+            ],
+            spacing=10,
+            ),
+            expand=True,
+            height=page.height,
+        )
     )
     
-    update_plot()
+    # Register to handle page resize events
+    def page_resize(e):
+        for tab in tabs.tabs:
+            if isinstance(tab.content, ft.Container):
+                tab.content.height = page.height
+        page.update()
+        
+    page.on_resize = page_resize
+    page.update()
 
-if __name__ == "__main__":
-    ft.app(target=main, view=ft.AppView.WEB_BROWSER)
+ft.app(target=main, view=ft.AppView.WEB_BROWSER)
